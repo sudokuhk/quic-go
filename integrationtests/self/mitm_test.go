@@ -218,16 +218,17 @@ var _ = Describe("MITM test", func() {
 					const interval = 10 // corrupt every 10th packet (stochastically)
 					const idleTimeout = time.Second
 
-					var numCorrupted int32
+					var numCorrupted, numPackets int32
 
 					BeforeEach(func() {
 						numCorrupted = 0
+						numPackets = 0
 						serverConfig.MaxIdleTimeout = idleTimeout
 					})
 
 					AfterEach(func() {
 						num := atomic.LoadInt32(&numCorrupted)
-						fmt.Fprintf(GinkgoWriter, "Corrupted %d packets.", num)
+						fmt.Fprintf(GinkgoWriter, "Corrupted %d of %d packets.", num, atomic.LoadInt32(&numPackets))
 						Expect(num).To(BeNumerically(">=", 1))
 						// If the packet containing the CONNECTION_CLOSE is corrupted,
 						// we have to wait for the session to time out.
@@ -237,13 +238,16 @@ var _ = Describe("MITM test", func() {
 					It("downloads a message when packet are corrupted towards the server", func() {
 						dropCb := func(dir quicproxy.Direction, raw []byte) bool {
 							defer GinkgoRecover()
-							if dir == quicproxy.DirectionIncoming && mrand.Intn(interval) == 0 {
-								pos := mrand.Intn(len(raw))
-								raw[pos] = byte(mrand.Intn(256))
-								_, err := clientConn.WriteTo(raw, serverConn.LocalAddr())
-								Expect(err).ToNot(HaveOccurred())
-								atomic.AddInt32(&numCorrupted, 1)
-								return true
+							if dir == quicproxy.DirectionIncoming {
+								atomic.AddInt32(&numPackets, 1)
+								if mrand.Intn(interval) == 0 {
+									pos := mrand.Intn(len(raw))
+									raw[pos] = byte(mrand.Intn(256))
+									_, err := clientConn.WriteTo(raw, serverConn.LocalAddr())
+									Expect(err).ToNot(HaveOccurred())
+									atomic.AddInt32(&numCorrupted, 1)
+									return true
+								}
 							}
 							return false
 						}
@@ -253,13 +257,16 @@ var _ = Describe("MITM test", func() {
 					It("downloads a message when packet are corrupted towards the client", func() {
 						dropCb := func(dir quicproxy.Direction, raw []byte) bool {
 							defer GinkgoRecover()
-							if dir == quicproxy.DirectionOutgoing && mrand.Intn(interval) == 0 {
-								pos := mrand.Intn(len(raw))
-								raw[pos] = byte(mrand.Intn(256))
-								_, err := serverConn.WriteTo(raw, clientConn.LocalAddr())
-								Expect(err).ToNot(HaveOccurred())
-								atomic.AddInt32(&numCorrupted, 1)
-								return true
+							if dir == quicproxy.DirectionOutgoing {
+								atomic.AddInt32(&numPackets, 1)
+								if mrand.Intn(interval) == 0 {
+									pos := mrand.Intn(len(raw))
+									raw[pos] = byte(mrand.Intn(256))
+									_, err := serverConn.WriteTo(raw, clientConn.LocalAddr())
+									Expect(err).ToNot(HaveOccurred())
+									atomic.AddInt32(&numCorrupted, 1)
+									return true
+								}
 							}
 							return false
 						}
